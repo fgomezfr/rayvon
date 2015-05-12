@@ -33,7 +33,7 @@
       <section id="main_content" class="inner">
         <p><em>Carnegie Mellon University 15-418 Final Project by Felipe Gomez-Frittelli</em></p>
 
-<p><em>Note to Judges: This project is pretty far behind; I've only had Mantle access for two weeks, and experienced a lot of problems that prevented me from implementing BVH construction on time, so there's not much to demo. Please move along.</em></p>
+<p><em>Scroll to bottom for final report / end-of-semester update.</em></p>
 
 <hr>
 
@@ -95,6 +95,53 @@ The second goal of the project is to modify the raycaster to a beam-chasing impl
 <p>One fact which quickly became apparent during initial research is that the Oculus SDK does not currently support Mantle rendering. Since I probably don't have time to do the integration myself, I'm changing Oculus support to a stretch goal for this project. If I have time I will investigate Mantle-Oculus rendering further in the final week, but I can better devote that time to creating more compelling demos on a desktop monitor (3840x2160 @ 60Hz or 1920x1080 @ 144Hz maximum).
 As of this writing, Mantle development is not yet available to me, but should be within the next few days. This has slowed down development, as I try to read ahead in the Mantle documentation while building against D3D11. By tomorrow I should have full-screen raytracing and simple shading in DirectX. I am now aiming to complete a BVH implementation by next week, so that I can fully devote the last two weeks to exploring the fastest possible implementations in Mantle. BVH construction, and raycasting through the BVH, is the last major but relatively straightforward programming prerequisite for this project, on which I am simply behind schedule due to other commitments.
 At this point, my main concern is moving from DirectX to Mantle; while much of the core code is portable, the new API presents technical challenges for reworking asset and rendering pipelines (easily handled), but also raises interesting questions about memory binding and compute dispatch synchronization, which at this point I cannot resolve without experimentation. I am currently focused on finishing the general coding prerequisites for accelerated raycasting and testing them in a simplistic DirectX renderer, so I can devote plenty of time to Mantle in the last two weeks of the project.</p>
+
+<h1>
+<a id="final-report-end-of-semester-update-05-11-2015" class="anchor" href="#final-report-end-of-semester-update-05-11-2015" aria-hidden="true"><span class="octicon octicon-link"></span></a>Final Report (End-of-Semester Update 05-11-2015)</h1>
+
+<h2>
+<a id="summary" class="anchor" href="#summary" aria-hidden="true"><span class="octicon octicon-link"></span></a>Summary</h2>
+
+<p>I am implementing a state-of-the-art raycaster within the Mantle API for rendering to an HMD. While the project is not yet complete, I currently have an interactive raycaster with acceleration structures in-progress.</p>
+
+<h2>
+<a id="background-1" class="anchor" href="#background-1" aria-hidden="true"><span class="octicon octicon-link"></span></a>Background</h2>
+
+<p>My project aims to provide tools for raycasting as an alternative to rasterization for visibility testing in the graphics pipeline. Moreover, I intend to show that this is feasible in a modern renderer, and demonstrate how low-level GPU / display synchronization can be used to perform extremely low-latency rendering by raycasting separate rows ahead of display scanline reads. The major deliverables are a set of HLSL functions for fast raycasting, and a minimal demo application in Mantle, with analysis of beam-chasing capabilities. The inputs to my application are static scenes and acceleration structures, which can be generated from scripts included with the application; support for dynamic scenes and tools for fast bounding-volume-hierarchy construction are considerations for future work.
+The major raycasting components are implemented in HLSL, because Mantle accepts graphics and compute shader inputs generated from HLSL source, and this makes the code extremely portable. Mantle in turn will be used to access low-level synchronization tools previously unavailable. Thus, the goal is to parallelize ray-scene intersection for primary visibility testing, by tracing packets of rays in shader code.</p>
+
+<h2>
+<a id="approach" class="anchor" href="#approach" aria-hidden="true"><span class="octicon octicon-link"></span></a>Approach</h2>
+
+<p>As noted previously, Mantle is used in my project as an interface to the GPU in a rendering context. Mantle provides certain tools, such as querying the current scanline being read to the display, and others still in development, that may make a real beam-chasing raycaster possible for the first time. Although I have not yet explored these tools in detail, that is a major focus of the project as I will be continuing over the near future.</p>
+
+<p>Within the Mantle API, my current implementation generates a mesh of ray sample positions in screen space. My HLSL raycasting functions are designed to be portable to any shader stage, so a simple implementation allows me to fill an image by rendering the ray mesh (using a Point topology for rasterization), and performing the raycast inside the vertex shader. While some minor optimizations may be possible only in a compute shader, using the graphics pipeline allows me to take advantage of the GPU scheduler to distribute rays in a natural packet size for the machine, and maintain good load-balancing at fine granularity of dispatches. Given a buffer of sample points, the scheduler automatically divides these into batches that match the SIMD width of the GPU, and distributes batches across available cores according to resource requirements. The actual shader code is scalar but implicitly parallelized; a while-while loop design with postponed leaf processing in my (in-progress) BVH traversal therefore equates to a SIMD-width group of rays, traversing a tree together. Note that this is not actual packet tracing (rays are not all required to visit the same nodes at the same time) but the traversal order of any one ray is affected by the other rays in its launch group. I assume the scheduler follows the typical behavior of assigning consecutive indices to vertices within a SIMD launch, so that threads will retrieve adjacent rays from the input buffer and thus be fairly coherent. For row-over-row beam chasing, I can then take advantage of guarantees that writes from one draw will complete before writes from a subsequent draw, although the second draw may begin executing earlier, or add extra synchronization between rows to force some spacing for latency as needed.</p>
+
+<p>It remains to be scene whether a compute approach might yield better results for the particular case of beam-chasing visibility tests, but the vertex shader approach demonstrates the portability of my code, which can be used to create other raycasting effects. In particular, I plan to implement a foveal rendering technique by leveraging the hardware tessellator to automatically generate additional ray samples within screen tiles.</p>
+
+<h2>
+<a id="results" class="anchor" href="#results" aria-hidden="true"><span class="octicon octicon-link"></span></a>Results</h2>
+
+<p>So far, I do not have results for beam-chasing, since I have not yet been able to explore techniques for doing this. I encountered significant difficulties in developing basic raycast structures in Mantle, and opted late in the project schedule to re-write my implementation in a barebones framework that enabled easier debugging. This allowed me to complete my raycast and application framework in a simple, clean C code base, but came at the cost of time needed to develop good acceleration structures. My current version performs a linear iteration over triangles, and can handle several thousand triangles at a resolution of 800x600 rays while remaining interactive. I also have code for BVH loading and traversal, but am only performing basic tests for correctness until I can develop an offline process for generating optimal BVH's.</p>
+
+<p>One aspect of the project that I will not be completing (or at least, not at all soon) is GPU-accelerated fast BVH construction. This is a requirement for raycasting dynamic scenes, which has <a href="https://research.nvidia.com/publication/fast-parallel-construction-high-quality-bounding-volume-hierarchies">very promising solutions in the literature</a>, but proved to be outside my time window for the project. Additionally, the known solutions rely on use of the <code>ballot</code> intrinsic for SIMD execution contexts, which is not supported in HLSL.</p>
+
+<p>As far as performance is concerned, I am fairly satisfied with my raycast to this point, although I have not deeply analyzed the latency of per-row raycasts. In raytracing this is known to be affected <strong>significantly</strong> by the quality of acceleration structures. As a simple metric, my raycast can intersect with about 2000 triangles per ray on an AMD R9 285 while retaining high framerates, within the range needed for low-latency beam chasing. After this point, framerate begins to decay significantly. An acceleration structure should help enormously with large scenes, and I expect to achieve interactive rates without too much additional optimization. One thing to note is that my current, vertex-shader implementation performs unnecessary work in rasterizing points and launching a pixel shader which simply passes a shaded color to the output merger. If performance at per-scanline levels becomes critical, I may opt for a compute shader implementation that combines output blending with raycasting, and avoids the rasterizer stage. However, a more complex approach will be needed to support foveal rendering, one of the secondary goals of this project and another driving factor in the choice of raycasting for VR rendering.</p>
+
+<h2>
+<a id="reflections-and-next-steps" class="anchor" href="#reflections-and-next-steps" aria-hidden="true"><span class="octicon octicon-link"></span></a>Reflections and Next Steps</h2>
+
+<p>Although this project is not complete, I have gained substantial knowledge of core Mantle operation and plausible raycasting implementations in HLSL. Support for BVH-accelerated raycasting is currently in development, and I plan to continue the project until I can test real approaches to beam-chasing in Mantle. The main limiting factor in development so far was lack of time, influenced largely by a poor development choice that led to a reboot of the project following frustrating (and extremely time-consuming) debugging experiences. My current framework is significantly simpler, allowing easy modification and debugging. Unfortunately, I did not have time to implement good acceleration structures, having put this off in the hope of completing a GPU implementation (see above). In retrospect, it would have been better to prepare quality BVH's in advance, or forego acceleration structures in favor of exploring beam-chasing on simpler scenes. With the time I have now, however, I plan to implement a split-BVH builder and begin more interesting tests on larger scenes.</p>
+
+<p>There is still a lot of work to do, but the current system demonstrates good techniques for raycasting in Mantle, and should be sufficient to begin beam-chasing experiments within a week or two. I will continue to work on the project, pending support from AMD, and update this page in the near future with results and publishable code. Until then, I am maintaining my code in a separate, private repository, as per an NDA agreement with AMD.</p>
+
+<h1>
+<a id="references" class="anchor" href="#references" aria-hidden="true"><span class="octicon octicon-link"></span></a>References</h1>
+
+<p>The major reference for this project is the Nvidia papers on GPU raycasting linked above:
+<a href="https://code.google.com/p/understanding-the-efficiency-of-ray-traversal-on-gpus/">https://code.google.com/p/understanding-the-efficiency-of-ray-traversal-on-gpus/</a>
+The Mantle Programming Guide and API Reference is also available online:
+<a href="www.amd.com/Documents/Mantle-Programming-Guide-and-API-Reference.pdf">www.amd.com/Documents/Mantle-Programming-Guide-and-API-Reference.pdf</a></p>
       </section>
     </div>
 
